@@ -85,7 +85,8 @@ async def run_swap(
 
         if dry_run:
             console.print(
-                "[bold yellow]⚡ DRY-RUN MODE: Transaction simulated. Zero gas spent.[/bold yellow]"
+                "[bold yellow]⚡ DRY-RUN MODE: Quote retrieved. "
+                "Transaction execution skipped.[/bold yellow]"
             )
             fee_amount = amount_sol * 0.005
             console.print(f"Fee (0.50% = {fee_amount:.6f} SOL) -> [green]{fee_acc}[/green]")

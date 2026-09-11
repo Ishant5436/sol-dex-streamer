@@ -87,8 +87,8 @@ def render_quote_summary(quote: QuoteResponse, symbol: str = "TOKEN") -> Panel:
     """Render quote details and platform fee breakdown."""
     sol_amount = quote.in_amount / 1_000_000_000
     fee_sol = (
-        (quote.platform_fee_amount or 0) / 1_000_000_000
-        if quote.platform_fee_amount
+        quote.platform_fee_amount / 1_000_000_000
+        if quote.platform_fee_amount is not None
         else (sol_amount * 0.005)
     )
 
