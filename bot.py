@@ -37,7 +37,7 @@ def build_welcome_message(fee_recipient: str) -> str:
         else fee_recipient
     )
     return (
-        "⚡ *SOL-DEX-STREAMER TELEGRAM BOT* ⚡\n\n"
+        "⚡ *SOLSHIELD SNIPER* ⚡\n\n"
         "High-speed Solana token scanner and sniper with Jito MEV protection.\n\n"
         "*Core Invariants:*\n"
         "• *Platform Fee:* 0.50% (50 bps) — Half the cost of Trojan / Maestro (1.00%).\n"
