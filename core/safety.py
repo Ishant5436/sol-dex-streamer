@@ -1,12 +1,22 @@
 """Token Safety and Anti-Rug Audit Client.
 
-Queries RugCheck for mint/freeze authority status and holder concentration
-so traders see a basic rug-risk signal before acting on a scan or quote.
+Queries RugCheck for mint/freeze authority status, holder concentration,
+the explicit `rugged` flag, and insider-cluster graph analysis, so traders
+see a rug-risk signal before acting on a scan, quote, or /check.
 
 Uses the full `/report` endpoint, not `/report/summary` -- the summary
 response only carries an aggregate risk score and a sparse `risks` list; it
 does not expose `mintAuthority`, `freezeAuthority`, or `topHolders` at all
 (confirmed live against api.rugcheck.xyz).
+
+Note: RugCheck's `creatorTokens` field (other tokens by the same deployer,
+which would enable a "serial rugger" check) came back null/absent for every
+token tested here, including established ones -- it isn't reliably
+populated via this endpoint, so it's deliberately not used. `rugged` and
+the insider-network fields have the same caveat for brand-new tokens (the
+population where a safety check matters most): RugCheck's deeper analysis
+often hasn't run on them yet, which is why every signal here is `None`
+(shown as unknown) rather than a false "clean" result when absent.
 """
 
 import time
@@ -30,6 +40,9 @@ class TokenSafetyReport(BaseModel):
     mint_authority_revoked: bool | None = None
     freeze_authority_revoked: bool | None = None
     top10_holder_pct: float | None = None
+    rugged: bool | None = None
+    insider_accounts: int | None = None
+    risk_score: int | None = None
 
     def mint_badge(self) -> str:
         if not self.available or self.mint_authority_revoked is None:
@@ -46,10 +59,50 @@ class TokenSafetyReport(BaseModel):
             return "Top10 Holders: N/A"
         return f"Top10 Holders: {self.top10_holder_pct:.1f}%"
 
+    def rugged_badge(self) -> str | None:
+        """None means RugCheck hasn't assessed this yet -- distinct from a
+        confirmed "not rugged" (False). Only meaningful once populated, which
+        in practice is common for newer/smaller tokens -- the exact
+        population where this signal matters most, and where it's least
+        likely to be available yet."""
+        if not self.available or self.rugged is None:
+            return None
+        return "🚨 FLAGGED AS RUGGED" if self.rugged else "✅ Not Flagged as Rugged"
+
+    def insider_badge(self) -> str | None:
+        """None when RugCheck's insider-cluster graph analysis hasn't run for
+        this token yet (also common for newer tokens) -- omitted rather than
+        shown as a false "clean" result."""
+        if not self.available or self.insider_accounts is None:
+            return None
+        if self.insider_accounts == 0:
+            return "✅ No insider clusters detected"
+        return f"⚠️ {self.insider_accounts:,} insider-linked accounts"
+
     def compact_line(self) -> str:
+        """Short one-liner for /scan, where up to 5 tokens are listed at once."""
         if not self.available:
             return "❔ Safety data unavailable"
-        return f"{self.mint_badge()} | {self.freeze_badge()} | {self.holder_badge()}"
+        rugged = self.rugged_badge()
+        prefix = f"{rugged} | " if rugged and self.rugged else ""
+        return f"{prefix}{self.mint_badge()} | {self.freeze_badge()} | {self.holder_badge()}"
+
+    def full_report_text(self) -> str:
+        """Multi-line report for the dedicated /check command, where a
+        single token gets the full page rather than a scan-list row."""
+        if not self.available:
+            return (
+                "❔ Safety data unavailable for this mint "
+                "(RugCheck unreachable or unknown token)."
+            )
+
+        lines = [self.rugged_badge(), self.mint_badge(), self.freeze_badge(), self.holder_badge()]
+        insider = self.insider_badge()
+        if insider:
+            lines.append(insider)
+        if self.risk_score is not None:
+            lines.append(f"RugCheck Risk Score: {self.risk_score} (lower is safer)")
+        return "\n".join(f"• {line}" for line in lines if line)
 
 
 class SafetyChecker:
@@ -95,6 +148,9 @@ class SafetyChecker:
                 mint_authority_revoked=data.get("mintAuthority") is None,
                 freeze_authority_revoked=data.get("freezeAuthority") is None,
                 top10_holder_pct=top10_pct,
+                rugged=data.get("rugged"),
+                insider_accounts=data.get("graphInsidersDetected"),
+                risk_score=data.get("score_normalised"),
             )
         except Exception:
             return TokenSafetyReport(mint=mint, available=False)

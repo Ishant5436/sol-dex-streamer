@@ -151,6 +151,54 @@ def test_build_swap_links_includes_fee_params_when_configured(monkeypatch):
     assert "feeBps=50" in desktop_url
 
 
+@pytest.mark.asyncio
+async def test_check_handler_requires_mint_argument():
+    """Verify /check with no args replies with usage instead of erroring."""
+    update = MagicMock()
+    update.message = AsyncMock()
+    context = MagicMock()
+    context.args = []
+
+    await bot.check_handler(update, context)
+
+    update.message.reply_text.assert_called_once()
+    reply_text = update.message.reply_text.call_args[0][0]
+    assert "Usage" in reply_text
+
+
+@pytest.mark.asyncio
+async def test_check_handler_happy_path():
+    """Verify /check <mint> fetches a safety report and replies with it,
+    without requiring any trade amount."""
+    update = MagicMock()
+    update.message = AsyncMock()
+    context = MagicMock()
+    mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    context.args = [mint]
+
+    fake_report = TokenSafetyReport(
+        mint=mint,
+        available=True,
+        rugged=False,
+        mint_authority_revoked=False,
+        freeze_authority_revoked=False,
+        top10_holder_pct=12.3,
+    )
+
+    with patch("bot.SafetyChecker") as mock_checker_cls:
+        mock_checker = mock_checker_cls.return_value
+        mock_checker.check_token = AsyncMock(return_value=fake_report)
+        mock_checker.close = AsyncMock()
+
+        await bot.check_handler(update, context)
+
+    update.message.reply_text.assert_called_once()
+    reply_text = update.message.reply_text.call_args[0][0]
+    assert "Safety Report" in reply_text
+    assert "⚠️ Mint Active" in reply_text
+    assert "12.3%" in reply_text
+
+
 def test_quick_buy_callback_data_within_telegram_limit():
     """Telegram rejects callback_data over 64 bytes with a BadRequest that
     would surface as a swallowed generic error -- verify every quick-buy

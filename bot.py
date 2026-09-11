@@ -105,7 +105,20 @@ def build_welcome_message(fee_recipient: str) -> str:
         "*Commands:*\n"
         "• `/scan` — Scan live trending Solana tokens with >$10k liquidity\n"
         "• `/quote <mint> [sol]` — Fetch Jupiter quote with 0.50% fee\n"
+        "• `/check <mint>` — Free rug/safety report, no trade needed\n"
         "• `/help` — Display this guide\n"
+    )
+
+
+def format_safety_check_message(mint: str, report: TokenSafetyReport) -> str:
+    """Format the standalone /check report -- a free, no-trade-required
+    lookup meant to be useful (and shareable) on its own."""
+    trunc_mint = mint[:4] + "..." + mint[-4:]
+    return (
+        f"🛡️ *Safety Report* — `{trunc_mint}`\n\n"
+        f"{report.full_report_text()}\n\n"
+        "_Data via RugCheck. Newer tokens often show fewer signals as "
+        "unassessed rather than clean -- unknown is not the same as safe._"
     )
 
 
@@ -275,6 +288,34 @@ async def quote_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await checker.close()
 
 
+async def check_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /check <mint> -- a free rug/safety lookup with no trade or
+    amount required, meant to be useful (and shareable) on its own."""
+    if not update.message:
+        return
+
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(
+            "⚠️ Usage: `/check <mint_address>`\n"
+            "Example: `/check EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`",
+            parse_mode="Markdown",
+        )
+        return
+
+    mint = args[0]
+    checker = SafetyChecker()
+    try:
+        report = await checker.check_token(mint)
+        text = format_safety_check_message(mint, report)
+        await update.message.reply_text(text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Check error: {e}")
+        await update.message.reply_text(f"❌ Error fetching safety report: {e}")
+    finally:
+        await checker.close()
+
+
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle inline keyboard taps."""
     query = update.callback_query
@@ -324,6 +365,7 @@ def build_telegram_app(token: str) -> Any:
     app.add_handler(CommandHandler("help", start_handler))
     app.add_handler(CommandHandler("scan", scan_handler))
     app.add_handler(CommandHandler("quote", quote_handler))
+    app.add_handler(CommandHandler("check", check_handler))
     app.add_handler(CallbackQueryHandler(callback_handler))
     return app
 
