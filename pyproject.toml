@@ -5,7 +5,7 @@ description = "High-speed Solana terminal DEX router and MEV-protected sniper wi
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "httpx>=0.28.0",
+    "httpx[http2]>=0.28.0",
     "pydantic>=2.10.0",
     "rich>=13.9.0",
     "solders>=0.23.0",

@@ -79,7 +79,10 @@ async def run_swap(
                 slippage_bps=50,
                 platform_fee_bps=50,
             )
-            quote = await router.get_quote(q_req)
+            # use_cache=False: this quote feeds directly into a swap transaction
+            # in live mode, so a stale cached quote would build against outdated
+            # pricing/liquidity.
+            quote = await router.get_quote(q_req, use_cache=False)
 
         console.print(render_quote_summary(quote))
 
