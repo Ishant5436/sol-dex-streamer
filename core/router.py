@@ -8,6 +8,8 @@ from typing import Any
 
 import httpx
 from pydantic import BaseModel, Field
+from solders.pubkey import Pubkey
+from spl.token.instructions import get_associated_token_address
 
 
 class QuoteRequest(BaseModel):
@@ -34,6 +36,18 @@ class SwapRequest(BaseModel):
     fee_account: str | None = None
     dynamic_compute_unit_limit: bool = True
     prioritization_fee_lamports: int | None = None
+
+
+def derive_fee_token_account(owner: str, mint: str) -> str:
+    """Derive the Associated Token Account Jupiter requires for `feeAccount`.
+
+    Jupiter's platform fee is transferred in the swap's output mint, into a
+    token account of that mint -- not the fee wallet's raw address. Passing
+    the wallet address directly builds a transaction that fails on-chain.
+    """
+    return str(
+        get_associated_token_address(Pubkey.from_string(owner), Pubkey.from_string(mint))
+    )
 
 
 class JupiterRouter:

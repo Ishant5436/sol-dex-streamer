@@ -84,22 +84,28 @@ def render_token_table(tokens: list[TokenInfo]) -> Table:
 
 
 def render_quote_summary(quote: QuoteResponse, symbol: str = "TOKEN") -> Panel:
-    """Render quote details and platform fee breakdown."""
+    """Render quote details and platform fee breakdown.
+
+    Jupiter denominates the platform fee in the swap's *output* mint, not
+    SOL -- so it's shown in the same raw-unit form as "Expected Out" rather
+    than divided by SOL's lamport factor and mislabeled as SOL.
+    """
     sol_amount = quote.in_amount / 1_000_000_000
-    fee_sol = (
-        quote.platform_fee_amount / 1_000_000_000
-        if quote.platform_fee_amount is not None
-        else (sol_amount * 0.005)
-    )
 
     text = Text()
     text.append(f"Input:         {sol_amount:.4f} SOL\n", style="bold white")
     text.append(f"Expected Out:  {quote.out_amount:,} {symbol} units\n", style="bold cyan")
     text.append(f"Price Impact:  {quote.price_impact_pct:.3f}%\n", style="yellow")
-    text.append(
-        f"Platform Fee:  {fee_sol:.6f} SOL (0.50% to feeAccount)\n",
-        style="bold green",
-    )
+    if quote.platform_fee_amount is not None:
+        text.append(
+            f"Platform Fee:  {quote.platform_fee_amount:,} {symbol} units (0.50% of output)\n",
+            style="bold green",
+        )
+    else:
+        text.append(
+            "Platform Fee:  unavailable from quote (0.50% requested)\n",
+            style="bold yellow",
+        )
     text.append("MEV Shield:    Jito Bundle Armed (Private block engine)", style="dim green")
 
     return Panel(

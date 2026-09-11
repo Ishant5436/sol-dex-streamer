@@ -5,11 +5,14 @@ bypassing the public Solana mempool to eliminate frontrunning and sandwich attac
 """
 
 import base64
+import json
+import os
 import random
 from typing import Any
 
 import httpx
 from pydantic import BaseModel
+from solana.rpc.async_api import AsyncClient
 from solders.hash import Hash
 from solders.keypair import Keypair
 from solders.message import MessageV0
@@ -35,6 +38,40 @@ class JitoTipConfig(BaseModel):
     block_engine_url: str = (
         "https://mainnet.block-engine.jito.wtf/api/v1/bundles"
     )
+
+
+def load_keypair(path: str | None = None) -> Keypair:
+    """Load a wallet keypair from a Solana CLI-style JSON key file.
+
+    Raises rather than falling back to a throwaway keypair: a random,
+    unfunded wallet cannot sign a real transaction, so a missing key file
+    must surface as a clear error instead of a silently broken live run.
+    """
+    key_path = path or os.environ.get(
+        "SOLANA_KEYPAIR_PATH", os.path.expanduser("~/.config/solana/id.json")
+    )
+    if not os.path.exists(key_path):
+        raise FileNotFoundError(
+            f"No keypair found at {key_path}. Set SOLANA_KEYPAIR_PATH or run "
+            "`solana-keygen new` before using --live."
+        )
+    with open(key_path) as f:
+        secret = json.load(f)
+    return Keypair.from_bytes(bytes(secret))
+
+
+async def fetch_recent_blockhash(rpc_url: str) -> str:
+    """Fetch the current blockhash from a Solana RPC endpoint.
+
+    Jito requires each bundle transaction to carry a live, recent blockhash;
+    an unset one defaults to an all-zero hash that the network rejects.
+    """
+    client = AsyncClient(rpc_url)
+    try:
+        resp = await client.get_latest_blockhash()
+        return str(resp.value.blockhash)
+    finally:
+        await client.close()
 
 
 class JitoBundler:

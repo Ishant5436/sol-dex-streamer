@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from core.router import JupiterRouter, QuoteRequest, SwapRequest
+from core.router import JupiterRouter, QuoteRequest, SwapRequest, derive_fee_token_account
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
 USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
@@ -92,6 +92,16 @@ async def test_get_swap_transaction_includes_fee_account():
         assert tx_base64 == mock_swap_resp["swapTransaction"]
 
     await router.close()
+
+
+def test_derive_fee_token_account_matches_known_ata():
+    """Verify derive_fee_token_account produces the real Associated Token
+    Account -- passing the raw wallet address as feeAccount instead fails
+    Jupiter's on-chain fee transfer (confirmed live against api.jup.ag)."""
+    fee_token_account = derive_fee_token_account(MOCK_FEE_PUBKEY, USDC_MINT)
+
+    assert fee_token_account == "C4PRXFV6Gf5mytVZb6RoeLsG8CjcFWzR2EJ3dvwPTUJH"
+    assert fee_token_account != MOCK_FEE_PUBKEY
 
 
 @pytest.mark.asyncio

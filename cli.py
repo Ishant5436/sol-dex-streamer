@@ -5,9 +5,9 @@ import argparse
 import asyncio
 import os
 
-from core.executor import JitoBundler
+from core.executor import JitoBundler, fetch_recent_blockhash, load_keypair
 from core.radar import TokenRadar
-from core.router import JupiterRouter, QuoteRequest, SwapRequest
+from core.router import JupiterRouter, QuoteRequest, SwapRequest, derive_fee_token_account
 from ui.dashboard import console, render_header, render_quote_summary, render_token_table
 
 SOL_MINT = "So11111111111111111111111111111111111111112"
@@ -88,26 +88,28 @@ async def run_swap(
                 "[bold yellow]⚡ DRY-RUN MODE: Quote retrieved. "
                 "Transaction execution skipped.[/bold yellow]"
             )
-            fee_amount = amount_sol * 0.005
-            console.print(f"Fee (0.50% = {fee_amount:.6f} SOL) -> [green]{fee_acc}[/green]")
             return
 
         # Live Execution
-        from solders.keypair import Keypair
-
-        payer = Keypair()  # In live mode, loads from user's secure keypair
+        payer = load_keypair()
+        fee_token_account = derive_fee_token_account(fee_acc, output_mint)
         with console.status("[bold cyan]Step 2/3: Constructing Jupiter Transaction..."):
             s_req = SwapRequest(
                 quote_response=quote.raw_data,
                 user_public_key=str(payer.pubkey()),
-                fee_account=fee_acc,
+                fee_account=fee_token_account,
                 dynamic_compute_unit_limit=True,
             )
             tx_b64 = await router.get_swap_transaction(s_req)
 
         with console.status("[bold cyan]Step 3/3: Packing Jito MEV Bundle..."):
             signed_tx = bundler.sign_jupiter_transaction(tx_b64, payer)
-            tip_tx = bundler.create_tip_transaction(payer, tip_lamports=10000)
+            recent_blockhash = await fetch_recent_blockhash(
+                os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+            )
+            tip_tx = bundler.create_tip_transaction(
+                payer, tip_lamports=10000, recent_blockhash=recent_blockhash
+            )
 
             import base58
 

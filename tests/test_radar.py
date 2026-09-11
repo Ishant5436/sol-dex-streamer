@@ -10,6 +10,7 @@ from core.radar import TokenInfo, TokenRadar
 def _mock_dexscreener_pairs():
     return [
         {
+            "chainId": "solana",
             "baseToken": {
                 "address": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
                 "name": "Bonk",
@@ -22,6 +23,7 @@ def _mock_dexscreener_pairs():
             "dexId": "raydium",
         },
         {
+            "chainId": "solana",
             "baseToken": {
                 "address": "LowLiqToken111111111111111111111111111111111",
                 "name": "ScamLowLiq",
@@ -34,6 +36,7 @@ def _mock_dexscreener_pairs():
             "dexId": "raydium",
         },
         {
+            "chainId": "solana",
             "baseToken": {
                 "address": "WIFToken111111111111111111111111111111111111",
                 "name": "Dogwifhat",
@@ -44,6 +47,19 @@ def _mock_dexscreener_pairs():
             "liquidity": {"usd": 2500000.0},
             "priceChange": {"m5": 0.85},
             "dexId": "raydium",
+        },
+        {
+            "chainId": "bsc",
+            "baseToken": {
+                "address": "0x1111111111111111111111111111111111111a",
+                "name": "Wrapped SOL (BSC)",
+                "symbol": "SOL",
+            },
+            "priceUsd": "99.0",
+            "volume": {"h24": 9000000.0},
+            "liquidity": {"usd": 5000000.0},
+            "priceChange": {"m5": 0.1},
+            "dexId": "pancakeswap",
         },
     ]
 
@@ -60,6 +76,22 @@ async def test_radar_filters_low_liquidity():
     assert "BONK" in symbols
     assert "WIF" in symbols
     assert "LOW" not in symbols
+
+    await radar.close()
+
+
+@pytest.mark.asyncio
+async def test_radar_excludes_other_chains():
+    """Verify pairs from non-Solana chains are dropped even if they'd pass
+    the liquidity/volume thresholds -- DexScreener's search endpoint matches
+    by text across every chain it indexes, not just Solana."""
+    radar = TokenRadar(min_liquidity_usd=10000.0, min_volume_24h_usd=25000.0)
+
+    filtered = radar.filter_tokens(_mock_dexscreener_pairs())
+
+    mints = [t.mint for t in filtered]
+    assert not any(m.startswith("0x") for m in mints)
+    assert "0x1111111111111111111111111111111111111a" not in mints
 
     await radar.close()
 

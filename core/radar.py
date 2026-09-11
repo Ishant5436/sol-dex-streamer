@@ -29,18 +29,28 @@ class TokenRadar:
         self,
         min_liquidity_usd: float = 10000.0,
         min_volume_24h_usd: float = 25000.0,
+        chain_id: str = "solana",
         timeout: float = 8.0,
     ):
         self.min_liquidity_usd = min_liquidity_usd
         self.min_volume_24h_usd = min_volume_24h_usd
+        self.chain_id = chain_id
         self.client = httpx.AsyncClient(timeout=timeout)
 
     def filter_tokens(self, raw_pairs: list[dict[str, Any]]) -> list[TokenInfo]:
-        """Apply strict liquidity, volume, and deduplication filters."""
+        """Apply chain, liquidity, volume, and deduplication filters.
+
+        DexScreener's search endpoint matches by text across every chain it
+        indexes, so a query like "SOL" also returns EVM pairs merely named
+        or priced in "SOL" -- the chainId check keeps this Solana-only.
+        """
         seen_mints = set()
         filtered: list[TokenInfo] = []
 
         for p in raw_pairs:
+            if p.get("chainId") != self.chain_id:
+                continue
+
             base = p.get("baseToken") or {}
             mint = base.get("address")
             if not mint or mint in seen_mints:
