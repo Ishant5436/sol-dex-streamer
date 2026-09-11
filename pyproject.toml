@@ -11,6 +11,7 @@ dependencies = [
     "solders>=0.23.0",
     "solana>=0.35.0",
     "base58>=2.1.0",
+    "python-telegram-bot>=21.0",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +31,7 @@ include = ["core*", "ui*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100

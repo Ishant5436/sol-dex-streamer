@@ -149,6 +149,10 @@ def main():
     swap_p.add_argument("--live", action="store_true", help="Execute live transaction")
     swap_p.add_argument("--fee-recipient", type=str, default=None, help="Fee recipient pubkey")
 
+    # bot
+    bot_p = subparsers.add_parser("bot", help="Run Telegram bot daemon")
+    bot_p.add_argument("--token", type=str, default=None, help="Telegram Bot Token")
+
     args = parser.parse_args()
 
     if args.command == "scan":
@@ -170,6 +174,19 @@ def main():
                 fee_recipient=args.fee_recipient,
             )
         )
+    elif args.command == "bot":
+        from bot import build_telegram_app
+
+        tg_token = args.token or os.environ.get("TELEGRAM_BOT_TOKEN")
+        if not tg_token:
+            console.print(
+                "[bold red]Error:[/bold red] TELEGRAM_BOT_TOKEN is required. "
+                "Provide --token or export TELEGRAM_BOT_TOKEN."
+            )
+            return
+        console.print("[bold green]🤖 Starting Telegram Bot polling daemon...[/bold green]")
+        app = build_telegram_app(tg_token)
+        app.run_polling()
 
 
 if __name__ == "__main__":
