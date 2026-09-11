@@ -146,7 +146,14 @@ async def quote_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     mint = args[0]
-    amount_sol = float(args[1]) if len(args) > 1 else 0.1
+    try:
+        amount_sol = float(args[1]) if len(args) > 1 else 0.1
+    except ValueError:
+        await update.message.reply_text(
+            f"⚠️ Invalid amount: `{args[1]}`. Provide a numeric SOL amount, e.g. `0.1`.",
+            parse_mode="Markdown",
+        )
+        return
     amount_lamports = int(amount_sol * 1_000_000_000)
 
     router = JupiterRouter()
