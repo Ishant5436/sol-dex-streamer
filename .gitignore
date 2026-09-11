@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.log
+*.egg-info/
+.env
+wallets/
+*.key
+*.pem
+*.json
+!pyproject.toml
+!package.json

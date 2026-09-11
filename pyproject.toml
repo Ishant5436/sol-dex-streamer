@@ -1,0 +1,39 @@
+[project]
+name = "sol-dex-streamer"
+version = "0.1.0"
+description = "High-speed Solana terminal DEX router and MEV-protected sniper with 0.50% Jupiter platform fee streaming"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.28.0",
+    "pydantic>=2.10.0",
+    "rich>=13.9.0",
+    "solders>=0.23.0",
+    "solana>=0.35.0",
+    "base58>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=0.25.0",
+    "ruff>=0.9.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["core*", "ui*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
