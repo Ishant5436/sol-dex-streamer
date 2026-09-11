@@ -52,7 +52,16 @@ class TokenRadar:
                 continue
 
             base = p.get("baseToken") or {}
-            mint = base.get("address")
+            quote = p.get("quoteToken") or {}
+
+            # If base token is SOL/WSOL, target the traded counter token (e.g. meme coin / SPL)
+            is_base_sol = (
+                base.get("symbol") in ("SOL", "WSOL")
+                or base.get("address") == "So11111111111111111111111111111111111111112"
+            )
+            target = quote if (is_base_sol and quote.get("address")) else base
+
+            mint = target.get("address")
             if not mint or mint in seen_mints:
                 continue
 
@@ -69,8 +78,8 @@ class TokenRadar:
             m5_change = float(price_change.get("m5", 0.0) or 0.0)
 
             price_usd = float(p.get("priceUsd", 0.0) or 0.0)
-            symbol = base.get("symbol", "UNKNOWN")
-            name = base.get("name", symbol)
+            symbol = target.get("symbol", "UNKNOWN")
+            name = target.get("name", symbol)
             dex_id = p.get("dexId", "raydium")
 
             seen_mints.add(mint)
@@ -91,7 +100,35 @@ class TokenRadar:
         return filtered
 
     async def fetch_trending_tokens(self, limit: int = 10) -> list[TokenInfo]:
-        """Fetch trending pairs on Solana from DexScreener."""
+        """Fetch trending pairs on Solana from DexScreener, prioritizing live boosted tokens."""
+        try:
+            boost_resp = await self.client.get("https://api.dexscreener.com/token-boosts/top/v1")
+            if boost_resp.status_code == 200:
+                data = boost_resp.json()
+                if isinstance(data, list):
+                    sol_addrs = [
+                        x.get("tokenAddress")
+                        for x in data
+                        if isinstance(x, dict)
+                        and x.get("chainId") == "solana"
+                        and x.get("tokenAddress")
+                    ][:limit]
+                    if sol_addrs:
+                        addr_str = ",".join(sol_addrs)
+                        url = f"https://api.dexscreener.com/latest/dex/tokens/{addr_str}"
+                        pair_resp = await self.client.get(url)
+                        if pair_resp.status_code == 200:
+                            p_data = pair_resp.json()
+                            pairs = (
+                                p_data if isinstance(p_data, list) else p_data.get("pairs", [])
+                            )
+                            tokens = self.filter_tokens(pairs)
+                            if tokens:
+                                return tokens[:limit]
+        except Exception:
+            pass
+
+        # Fallback to search endpoint
         url = "https://api.dexscreener.com/latest/dex/search?q=SOL"
         try:
             resp = await self.client.get(url)

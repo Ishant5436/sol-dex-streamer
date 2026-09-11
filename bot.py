@@ -191,7 +191,11 @@ async def quote_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         quote = await router.get_quote(req)
         text = format_quote_message(quote)
-        await update.message.reply_text(text, parse_mode="Markdown")
+        swap_url = f"https://jup.ag/swap/SOL-{mint}"
+        swap_markup = InlineKeyboardMarkup(
+            [[InlineKeyboardButton("⚡ Execute Swap on Jupiter (1-Click) ↗", url=swap_url)]]
+        )
+        await update.message.reply_text(text, reply_markup=swap_markup, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Quote error: {e}")
         await update.message.reply_text(f"❌ Error fetching quote: {e}")
@@ -225,8 +229,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             )
             quote = await router.get_quote(req)
             text = format_quote_message(quote)
+            swap_url = f"https://jup.ag/swap/SOL-{mint}"
+            swap_markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("⚡ Execute Swap on Jupiter (1-Click) ↗", url=swap_url)]]
+            )
             if query.message:
-                await query.message.reply_text(text, parse_mode="Markdown")
+                await query.message.reply_text(
+                    text, reply_markup=swap_markup, parse_mode="Markdown"
+                )
         except Exception as e:
             if query.message:
                 await query.message.reply_text(f"❌ Error fetching quote: {e}")
