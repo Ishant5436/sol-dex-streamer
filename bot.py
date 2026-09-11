@@ -9,15 +9,19 @@ import asyncio
 import logging
 import os
 import re
+import time
 from typing import Any
 from urllib.parse import quote as urlquote
 
+from solders.pubkey import Pubkey
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
+    MessageHandler,
+    filters,
 )
 
 from core.radar import TokenInfo, TokenRadar
@@ -39,6 +43,29 @@ SOL_MINT = "So11111111111111111111111111111111111111112"
 DEFAULT_FEE_RECIPIENT = "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU"
 
 _MARKDOWN_UNSAFE = re.compile(r"[*_`\[\]]")
+_SOLANA_BASE58_PATTERN = re.compile(r"\b[1-9A-HJ-NP-Za-km-z]{32,44}\b")
+_NON_MINT_ADDRESSES = {
+    SOL_MINT,
+    "11111111111111111111111111111111",
+    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+}
+
+_CA_SEEN_CACHE: dict[tuple[int, str], float] = {}
+_CA_DEBOUNCE_SECONDS = 60.0
+
+
+def extract_solana_address(text: str) -> str | None:
+    """Extract the first valid Solana token mint address from text, or None."""
+    for candidate in _SOLANA_BASE58_PATTERN.findall(text):
+        if candidate in _NON_MINT_ADDRESSES:
+            continue
+        try:
+            Pubkey.from_string(candidate)
+            return candidate
+        except (ValueError, Exception):
+            continue
+    return None
 
 
 def sanitize_markdown(text: str) -> str:
@@ -358,6 +385,75 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             await checker.close()
 
 
+async def auto_ca_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Detect Solana token addresses posted in groups/DMs and reply with
+    safety scorecard and quick-buy buttons."""
+    if not update.message or not update.message.text:
+        return
+    text = update.message.text
+    if text.startswith("/"):
+        return
+
+    mint = extract_solana_address(text)
+    if not mint:
+        return
+
+    chat_id = update.effective_chat.id if update.effective_chat else 0
+    now = time.monotonic()
+
+    # Debounce repeated postings of the same CA in the same chat within window
+    last_seen = _CA_SEEN_CACHE.get((chat_id, mint), 0.0)
+    if now - last_seen < _CA_DEBOUNCE_SECONDS:
+        return
+
+    # Clean up cache if too large (bounded memory)
+    if len(_CA_SEEN_CACHE) > 1000:
+        _CA_SEEN_CACHE.clear()
+
+    router = JupiterRouter()
+    checker = SafetyChecker()
+    try:
+        # Default scan quote: 0.5 SOL for rapid execution
+        amount_lamports = int(0.5 * 10**9)
+        fee_recipient = (
+            os.environ.get("SOL_FEE_RECIPIENT")
+            or os.environ.get("PLATFORM_FEE_WALLET")
+            or DEFAULT_FEE_RECIPIENT
+        )
+        fee_account = router.derive_fee_token_account(fee_recipient, mint)
+        req = QuoteRequest(
+            input_mint=SOL_MINT,
+            output_mint=mint,
+            amount_lamports=amount_lamports,
+            slippage_bps=50,
+            platform_fee_bps=50,
+            fee_account=fee_account,
+        )
+        quote, safety_report = await asyncio.gather(
+            router.get_quote(req),
+            checker.check_token(mint),
+        )
+        text_out, keyboard = format_quote_message(
+            quote,
+            mint=mint,
+            safety_report=safety_report,
+        )
+        markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(
+            text_out,
+            reply_markup=markup,
+            parse_mode="Markdown",
+            reply_to_message_id=update.message.message_id,
+        )
+        _CA_SEEN_CACHE[(chat_id, mint)] = now
+    except Exception as exc:
+        # Silently ignore non-tokens (wallets or unlisted tokens) to avoid group spam
+        logger.debug("Auto-CA lookup ignored for %s: %s", mint, exc)
+    finally:
+        await router.close()
+        await checker.close()
+
+
 def build_telegram_app(token: str) -> Any:
     """Construct and configure the Telegram application."""
     app = Application.builder().token(token).build()
@@ -367,6 +463,7 @@ def build_telegram_app(token: str) -> Any:
     app.add_handler(CommandHandler("quote", quote_handler))
     app.add_handler(CommandHandler("check", check_handler))
     app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, auto_ca_handler))
     return app
 
 

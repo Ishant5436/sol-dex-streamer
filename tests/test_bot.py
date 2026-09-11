@@ -9,6 +9,7 @@ from bot import (
     build_quick_buy_keyboard,
     build_swap_links,
     build_welcome_message,
+    extract_solana_address,
     format_quote_message,
     format_token_radar_message,
     sanitize_markdown,
@@ -267,3 +268,136 @@ async def test_quote_handler_happy_path():
     reply_text = update.message.reply_text.call_args[0][0]
     assert "9,900,000" in reply_text
     assert "49,500" in reply_text
+
+
+def test_extract_solana_address():
+    """Verify Solana base58 address extraction from chat messages."""
+    bonk_mint = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+    assert extract_solana_address(bonk_mint) == bonk_mint
+    assert extract_solana_address(f"Hey check this coin {bonk_mint} lfg!") == bonk_mint
+    assert (
+        extract_solana_address(f"contract: {bonk_mint}.")
+        == bonk_mint
+    )
+    # Ignore native SOL mint and system program
+    assert extract_solana_address("So11111111111111111111111111111111111111112") is None
+    assert extract_solana_address("11111111111111111111111111111111") is None
+    # Ignore regular text and invalid base58 characters (0, O, I, l)
+    assert extract_solana_address("hello world this is not a crypto coin") is None
+    assert extract_solana_address("00000000000000000000000000000000000000000000") is None
+
+
+@pytest.mark.asyncio
+async def test_auto_ca_handler_happy_path():
+    """Verify a chat message with a valid token CA triggers a quote reply with
+    reply_to_message_id."""
+    update = MagicMock()
+    update.message = AsyncMock()
+    update.message.text = "check out DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+    update.message.message_id = 999
+    update.effective_chat.id = 12345
+    context = MagicMock()
+
+    fake_quote = QuoteResponse(
+        input_mint="So11111111111111111111111111111111111111112",
+        output_mint="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        in_amount=500_000_000,
+        out_amount=20_000_000,
+        price_impact_pct=0.02,
+        platform_fee_amount=100_000,
+    )
+    fake_report = TokenSafetyReport(
+        mint="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        available=True,
+        is_mint_revoked=True,
+    )
+
+    with (
+        patch("bot.JupiterRouter") as mock_router_cls,
+        patch("bot.SafetyChecker") as mock_checker_cls,
+    ):
+        mock_router = mock_router_cls.return_value
+        mock_router.get_quote = AsyncMock(return_value=fake_quote)
+        mock_router.close = AsyncMock()
+        mock_checker = mock_checker_cls.return_value
+        mock_checker.check_token = AsyncMock(return_value=fake_report)
+        mock_checker.close = AsyncMock()
+
+        # Clear debounce cache before testing
+        bot._CA_SEEN_CACHE.clear()
+        await bot.auto_ca_handler(update, context)
+
+    update.message.reply_text.assert_called_once()
+    kwargs = update.message.reply_text.call_args[1]
+    assert kwargs.get("reply_to_message_id") == 999
+
+
+@pytest.mark.asyncio
+async def test_auto_ca_handler_silently_ignores_non_token_and_quote_error():
+    """Verify non-token text or failed quotes do not send error spam to the chat."""
+    update = MagicMock()
+    update.message = AsyncMock()
+    update.message.text = "just regular chatting in the group"
+    update.effective_chat.id = 12345
+    context = MagicMock()
+
+    await bot.auto_ca_handler(update, context)
+    update.message.reply_text.assert_not_called()
+
+    # Now with a valid base58 address that fails quote lookup (e.g. personal wallet or unlisted)
+    update.message.text = "my wallet is 2WktV1iZqBv6QcXxZ8rTneDANotAToken11111111111"
+    with patch("bot.JupiterRouter") as mock_router_cls:
+        mock_router = mock_router_cls.return_value
+        mock_router.get_quote = AsyncMock(side_effect=Exception("No route found"))
+        mock_router.close = AsyncMock()
+
+        await bot.auto_ca_handler(update, context)
+
+    update.message.reply_text.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_auto_ca_handler_debounce():
+    """Verify posting the same CA multiple times in the same chat within the
+    debounce window is ignored."""
+    update = MagicMock()
+    update.message = AsyncMock()
+    update.message.text = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
+    update.message.message_id = 100
+    update.effective_chat.id = 54321
+    context = MagicMock()
+
+    fake_quote = QuoteResponse(
+        input_mint="So11111111111111111111111111111111111111112",
+        output_mint="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        in_amount=500_000_000,
+        out_amount=20_000_000,
+        price_impact_pct=0.02,
+        platform_fee_amount=100_000,
+    )
+    fake_report = TokenSafetyReport(
+        mint="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        available=False,
+    )
+
+    with (
+        patch("bot.JupiterRouter") as mock_router_cls,
+        patch("bot.SafetyChecker") as mock_checker_cls,
+    ):
+        mock_router = mock_router_cls.return_value
+        mock_router.get_quote = AsyncMock(return_value=fake_quote)
+        mock_router.close = AsyncMock()
+        mock_checker = mock_checker_cls.return_value
+        mock_checker.check_token = AsyncMock(return_value=fake_report)
+        mock_checker.close = AsyncMock()
+
+        bot._CA_SEEN_CACHE.clear()
+        # First call triggers reply
+        await bot.auto_ca_handler(update, context)
+        assert update.message.reply_text.call_count == 1
+
+        # Immediate second call with same CA in same chat should be debounced
+        update.message.reply_text.reset_mock()
+        await bot.auto_ca_handler(update, context)
+        update.message.reply_text.assert_not_called()
+
