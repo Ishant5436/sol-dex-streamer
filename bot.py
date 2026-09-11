@@ -100,9 +100,33 @@ def format_quote_message(quote: QuoteResponse, symbol: str = "TOKEN") -> str:
     )
 
 
+def load_dotenv_fallback() -> None:
+    """Load environment variables from a local .env file if present."""
+    if not os.path.exists(".env"):
+        return
+    try:
+        with open(".env", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip().strip("\"'")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+    except Exception:
+        pass
+
+
+load_dotenv_fallback()
+
+
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start and /help commands."""
-    fee_acc = os.environ.get("SOL_FEE_RECIPIENT", DEFAULT_FEE_RECIPIENT)
+    fee_acc = (
+        os.environ.get("SOL_FEE_RECIPIENT")
+        or os.environ.get("PLATFORM_FEE_WALLET")
+        or DEFAULT_FEE_RECIPIENT
+    )
     msg = build_welcome_message(fee_acc)
     if update.message:
         await update.message.reply_text(msg, parse_mode="Markdown")
